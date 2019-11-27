@@ -6,6 +6,8 @@ from PIL import Image
 
 import torch
 from torchvision import transforms
+import torchvision.models as models
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from sklearn.preprocessing import MinMaxScaler
@@ -32,6 +34,13 @@ class Pipeline:
             features = self.feat_model(images)
             
         return self.model.predict(features)
+    
+def stripped_resnet18():
+    feat_model = models.resnet18(pretrained=True)
+
+    # Strip the last linear layer
+    feat_model.fc = nn.Sequential()
+    return feat_model
 
 def load_img(img_file, process=True):
     img = Image.open(path.join(root, img_file))
@@ -39,14 +48,20 @@ def load_img(img_file, process=True):
         img = preprocess(img)
     return img
 
-def extract_features(model, loader):
+def extract_features(model, loader, verbose=True):
     X = []
     y = []
     
+    count = 0
     with torch.no_grad():
         for (data, out) in loader:
+            print('.', end='')
             X.append(model(data))
             y.extend(out)
+            count += 1
+            
+            if count % 10 == 0:
+                print()
             
     return np.vstack(X), np.array(y)
     
@@ -77,7 +92,8 @@ class ImageDataset(Dataset):
 def create_loader(limit, workers=4, batch_size=256, shuffle=True):
     df = load(path.join(root, "data.txt"))
     scaler = MinMaxScaler()
-    df['steering_scaled'] = scaler.fit_transform(df['steering'].values.reshape(-1, 1))
+    df['steering_clipped'] = df['steering'].clip(-135, 135)
+    df['steering_scaled'] = scaler.fit_transform(df['steering_clipped'].values.reshape(-1, 1))
     
     dataset = ImageDataset(df, limit=limit)
     loader = DataLoader(dataset, shuffle=shuffle, batch_size=batch_size, num_workers=workers)
